@@ -2,8 +2,8 @@ name: Claude scheduled hello (token refresh)
 
 on:
   schedule:
-    # GitHub cron uses UTC. These run at 07:03 / 12:03 / 17:03 GMT+7 (UTC+7).
-    - cron: "3 0,5,10 * * *"
+    # GitHub cron uses UTC. These run at 06:03 / 11:03 / 16:03 GMT+7 (UTC+7).
+    - cron: "3 23,4,9 * * *"
   workflow_dispatch:
 
 permissions:
