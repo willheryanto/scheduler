@@ -1,0 +1,111 @@
+name: Claude scheduled hello (token refresh)
+
+on:
+  schedule:
+    # GitHub cron uses UTC. These run at 07:03 / 12:03 / 17:03 GMT+7 (UTC+7).
+    - cron: "3 0,5,10 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: claude-scheduled-hello
+  cancel-in-progress: false
+
+jobs:
+  hello:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Set this secret in repo settings.
+      # Expected to contain the full JSON from ~/.claude/.credentials.json.
+      CLAUDE_CREDENTIALS_JSON: ${{ secrets.CLAUDE_CREDENTIALS_JSON }}
+
+      # Optional: set this secret (PAT) if GITHUB_TOKEN can't write secrets in your repo.
+      # Required scopes depend on repo settings; start with classic PAT "repo".
+      GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+
+      # Optional: override where credentials are read/written.
+      # Recommended to set as a repository variable.
+      CLAUDE_CREDENTIALS_PATH: ${{ vars.CLAUDE_CREDENTIALS_PATH }}
+    steps:
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Claude CLI
+        run: npm install -g @anthropic-ai/claude-code@latest
+
+      - name: Say hello (and rotate token if needed)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${CLAUDE_CREDENTIALS_JSON:-}" ]]; then
+            echo "Missing required secret: CLAUDE_CREDENTIALS_JSON" >&2
+            exit 1
+          fi
+
+          if ! command -v gh >/dev/null 2>&1; then
+            echo "Missing required CLI: gh (GitHub CLI)" >&2
+            exit 1
+          fi
+
+          credentials_path="${CLAUDE_CREDENTIALS_PATH:-$HOME/.claude/.credentials.json}"
+          mkdir -p "$(dirname "$credentials_path")"
+          printf '%s' "$CLAUDE_CREDENTIALS_JSON" > "$credentials_path"
+          chmod 600 "$credentials_path" || true
+
+          old_access="$(
+            node -e '
+              const fs=require("fs");
+              const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+              process.stdout.write((j?.claudeAiOauth?.accessToken ?? "").trim());
+            ' "$credentials_path"
+          )"
+          old_refresh="$(
+            node -e '
+              const fs=require("fs");
+              const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+              process.stdout.write((j?.claudeAiOauth?.refreshToken ?? "").trim());
+            ' "$credentials_path"
+          )"
+
+          # Adjust this command if your claude CLI expects a different invocation.
+          claude -p "hello"
+
+          if [[ ! -f "$credentials_path" ]]; then
+            echo "Credentials file not found after running claude: $credentials_path" >&2
+            exit 1
+          fi
+
+          new_access="$(
+            node -e '
+              const fs=require("fs");
+              const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+              process.stdout.write((j?.claudeAiOauth?.accessToken ?? "").trim());
+            ' "$credentials_path"
+          )"
+          new_refresh="$(
+            node -e '
+              const fs=require("fs");
+              const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+              process.stdout.write((j?.claudeAiOauth?.refreshToken ?? "").trim());
+            ' "$credentials_path"
+          )"
+
+          if [[ -z "$new_access" || -z "$new_refresh" ]]; then
+            echo "Could not read access/refresh tokens from $credentials_path" >&2
+            exit 1
+          fi
+
+          if [[ "$new_access" == "$old_access" && "$new_refresh" == "$old_refresh" ]]; then
+            echo "Tokens unchanged; skipping secret update."
+            exit 0
+          fi
+
+          gh secret set CLAUDE_CREDENTIALS_JSON -R "$GITHUB_REPOSITORY" < "$credentials_path"
+          echo "Updated repo secret: CLAUDE_CREDENTIALS_JSON"
