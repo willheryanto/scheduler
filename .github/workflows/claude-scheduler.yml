@@ -75,7 +75,7 @@ jobs:
           )"
 
           # Adjust this command if your claude CLI expects a different invocation.
-          claude -p "hello"
+          claude --model haiku -p "hello"
 
           if [[ ! -f "$credentials_path" ]]; then
             echo "Credentials file not found after running claude: $credentials_path" >&2

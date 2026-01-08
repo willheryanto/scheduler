@@ -6,6 +6,7 @@ This repo includes a GitHub Actions workflow that runs `claude` on a schedule at
 - 07:03, 12:03, 17:03 (GMT+7)
 
 GitHub cron is UTC, so the workflow uses `3 0,5,10 * * *`.
+The workflow runs with `--model haiku` for faster execution.
 
 ### Required repo secret
 - `CLAUDE_CREDENTIALS_JSON`: the full contents of `~/.claude/.credentials.json`, for example:
