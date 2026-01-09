@@ -11,6 +11,7 @@ The workflow runs with `--model haiku` for faster execution.
 ### Required repo secret
 - `CLAUDE_CREDENTIALS_JSON`: the full contents of `~/.claude/.credentials.json`, for example:
   - `{"claudeAiOauth":{"accessToken":"sk-ant-oat01-...","refreshToken":"sk-ant-ort01-...","expiresAt":1748658860401,"scopes":["user:inference","user:profile"]}}`
+- `CODEX_AUTH_JSON`: the full contents of `~/.codex/auth.json`
 
 ### Optional secret (only if needed)
 - `GH_PAT`: a GitHub Personal Access Token used to update the `CLAUDE_CREDENTIALS_JSON` secret if the token rotates.
@@ -18,5 +19,6 @@ The workflow runs with `--model haiku` for faster execution.
 
 ### Optional repo variable
 - `CLAUDE_CREDENTIALS_PATH`: where the `claude` CLI reads/writes credentials (default: `~/.claude/.credentials.json`).
+- `CODEX_AUTH_PATH`: where the `codex` CLI reads/writes auth (default: `~/.codex/auth.json`).
 
 Workflow file: `.github/workflows/claude-scheduler.yml`
