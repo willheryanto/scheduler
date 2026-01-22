@@ -38,6 +38,14 @@ jobs:
       # Optional: override where Codex auth is read/written.
       # Recommended to set as a repository variable.
       CODEX_AUTH_PATH: ${{ vars.CODEX_AUTH_PATH }}
+
+      # Set this secret in repo settings.
+      # Expected to contain the full JSON from ~/.codex-kr/auth.json (separate profile via CODEX_HOME).
+      CODEX_KR_AUTH_JSON: ${{ secrets.CODEX_KR_AUTH_JSON }}
+
+      # Optional: override where the "KR" Codex profile stores state.
+      # Recommended to set as a repository variable.
+      CODEX_KR_HOME: ${{ vars.CODEX_KR_HOME }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -189,3 +197,73 @@ jobs:
 
           gh secret set CODEX_AUTH_JSON -R "$GITHUB_REPOSITORY" < "$auth_path"
           echo "Updated repo secret: CODEX_AUTH_JSON"
+
+      - name: Codex KR hello (and rotate token if needed)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${CODEX_KR_AUTH_JSON:-}" ]]; then
+            echo "Missing required secret: CODEX_KR_AUTH_JSON" >&2
+            exit 1
+          fi
+
+          codex_home="${CODEX_KR_HOME:-$HOME/.codex-kr}"
+          export CODEX_HOME="$codex_home"
+          auth_path="$CODEX_HOME/auth.json"
+          export CODEX_AUTH_PATH="$auth_path"
+
+          mkdir -p "$(dirname "$auth_path")"
+          printf '%s' "$CODEX_KR_AUTH_JSON" > "$auth_path"
+          chmod 600 "$auth_path" || true
+
+          old_access="$(
+            node -e '
+              const fs=require("fs");
+              const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+              process.stdout.write((j?.tokens?.access_token ?? "").trim());
+            ' "$auth_path"
+          )"
+          old_refresh="$(
+            node -e '
+              const fs=require("fs");
+              const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+              process.stdout.write((j?.tokens?.refresh_token ?? "").trim());
+            ' "$auth_path"
+          )"
+
+          # Non-interactive usage: codex exec ...
+          codex exec --full-auto --sandbox workspace-write "hello"
+
+          if [[ ! -f "$auth_path" ]]; then
+            echo "Codex KR auth file not found after running codex: $auth_path" >&2
+            exit 1
+          fi
+
+          new_access="$(
+            node -e '
+              const fs=require("fs");
+              const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+              process.stdout.write((j?.tokens?.access_token ?? "").trim());
+            ' "$auth_path"
+          )"
+          new_refresh="$(
+            node -e '
+              const fs=require("fs");
+              const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+              process.stdout.write((j?.tokens?.refresh_token ?? "").trim());
+            ' "$auth_path"
+          )"
+
+          if [[ -z "$new_access" || -z "$new_refresh" ]]; then
+            echo "Could not read access/refresh tokens from $auth_path" >&2
+            exit 1
+          fi
+
+          if [[ "$new_access" == "$old_access" && "$new_refresh" == "$old_refresh" ]]; then
+            echo "Codex KR tokens unchanged; skipping secret update."
+            exit 0
+          fi
+
+          gh secret set CODEX_KR_AUTH_JSON -R "$GITHUB_REPOSITORY" < "$auth_path"
+          echo "Updated repo secret: CODEX_KR_AUTH_JSON"
