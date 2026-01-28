@@ -134,6 +134,7 @@ jobs:
           chmod 600 "$auth_path" || true
 
       - name: Antigravity token refresh (OpenCode ping)
+        continue-on-error: true
         shell: bash
         env:
           OPENCODE_CONFIG_CONTENT: |
