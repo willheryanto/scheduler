@@ -297,71 +297,71 @@ jobs:
       - name: Install Codex CLI
         run: npm install -g @openai/codex@latest
 
-      # - name: Codex hello (and rotate token if needed)
-      #   shell: bash
-      #   run: |
-      #     set -euo pipefail
-      #
-      #     if [[ -z "${CODEX_AUTH_JSON:-}" ]]; then
-      #       echo "Missing required secret: CODEX_AUTH_JSON" >&2
-      #       exit 1
-      #     fi
-      #
-      #     auth_path="${CODEX_AUTH_PATH:-$HOME/.codex/auth.json}"
-      #     mkdir -p "$(dirname "$auth_path")"
-      #     printf '%s' "$CODEX_AUTH_JSON" > "$auth_path"
-      #     chmod 600 "$auth_path" || true
-      #
-      #     old_access="$(
-      #       node -e '
-      #         const fs=require("fs");
-      #         const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
-      #         process.stdout.write((j?.tokens?.access_token ?? "").trim());
-      #       ' "$auth_path"
-      #     )"
-      #     old_refresh="$(
-      #       node -e '
-      #         const fs=require("fs");
-      #         const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
-      #         process.stdout.write((j?.tokens?.refresh_token ?? "").trim());
-      #       ' "$auth_path"
-      #     )"
-      #
-      #     # Non-interactive usage: codex exec ...
-      #     codex exec --full-auto --sandbox workspace-write "hello"
-      #
-      #     if [[ ! -f "$auth_path" ]]; then
-      #       echo "Codex auth file not found after running codex: $auth_path" >&2
-      #       exit 1
-      #     fi
-      #
-      #     new_access="$(
-      #       node -e '
-      #         const fs=require("fs");
-      #         const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
-      #         process.stdout.write((j?.tokens?.access_token ?? "").trim());
-      #       ' "$auth_path"
-      #     )"
-      #     new_refresh="$(
-      #       node -e '
-      #         const fs=require("fs");
-      #         const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
-      #         process.stdout.write((j?.tokens?.refresh_token ?? "").trim());
-      #       ' "$auth_path"
-      #     )"
-      #
-      #     if [[ -z "$new_access" || -z "$new_refresh" ]]; then
-      #       echo "Could not read access/refresh tokens from $auth_path" >&2
-      #       exit 1
-      #     fi
-      #
-      #     if [[ "$new_access" == "$old_access" && "$new_refresh" == "$old_refresh" ]]; then
-      #       echo "Codex tokens unchanged; skipping secret update."
-      #       exit 0
-      #     fi
-      #
-      #     gh secret set CODEX_AUTH_JSON -R "$GITHUB_REPOSITORY" < "$auth_path"
-      #     echo "Updated repo secret: CODEX_AUTH_JSON"
+      - name: Codex hello (and rotate token if needed)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${CODEX_AUTH_JSON:-}" ]]; then
+            echo "Missing required secret: CODEX_AUTH_JSON" >&2
+            exit 1
+          fi
+
+          auth_path="${CODEX_AUTH_PATH:-$HOME/.codex/auth.json}"
+          mkdir -p "$(dirname "$auth_path")"
+          printf '%s' "$CODEX_AUTH_JSON" > "$auth_path"
+          chmod 600 "$auth_path" || true
+
+          old_access="$(
+            node -e '
+              const fs=require("fs");
+              const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+              process.stdout.write((j?.tokens?.access_token ?? "").trim());
+            ' "$auth_path"
+          )"
+          old_refresh="$(
+            node -e '
+              const fs=require("fs");
+              const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+              process.stdout.write((j?.tokens?.refresh_token ?? "").trim());
+            ' "$auth_path"
+          )"
+
+          # Non-interactive usage: codex exec ...
+          codex exec --full-auto --sandbox workspace-write "hello"
+
+          if [[ ! -f "$auth_path" ]]; then
+            echo "Codex auth file not found after running codex: $auth_path" >&2
+            exit 1
+          fi
+
+          new_access="$(
+            node -e '
+              const fs=require("fs");
+              const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+              process.stdout.write((j?.tokens?.access_token ?? "").trim());
+            ' "$auth_path"
+          )"
+          new_refresh="$(
+            node -e '
+              const fs=require("fs");
+              const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+              process.stdout.write((j?.tokens?.refresh_token ?? "").trim());
+            ' "$auth_path"
+          )"
+
+          if [[ -z "$new_access" || -z "$new_refresh" ]]; then
+            echo "Could not read access/refresh tokens from $auth_path" >&2
+            exit 1
+          fi
+
+          if [[ "$new_access" == "$old_access" && "$new_refresh" == "$old_refresh" ]]; then
+            echo "Codex tokens unchanged; skipping secret update."
+            exit 0
+          fi
+
+          gh secret set CODEX_AUTH_JSON -R "$GITHUB_REPOSITORY" < "$auth_path"
+          echo "Updated repo secret: CODEX_AUTH_JSON"
 
       - name: Codex KR hello (and rotate token if needed)
         shell: bash
