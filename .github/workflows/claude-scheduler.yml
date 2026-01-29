@@ -50,6 +50,49 @@ jobs:
       # Set this secret in repo settings.
       # Expected to contain the full JSON from ~/.config/opencode/antigravity-accounts.json.
       ANTIGRAVITY_ACCOUNTS_JSON: ${{ secrets.ANTIGRAVITY_ACCOUNTS_JSON }}
+
+      # OpenCode config for the ping steps below.
+      OPENCODE_CONFIG_CONTENT: |
+        {
+          "$schema": "https://opencode.ai/config.json",
+          "plugin": ["opencode-antigravity-auth@latest"],
+          "provider": {
+            "google": {
+              "npm": "@ai-sdk/google",
+              "models": {
+                "antigravity-claude-opus-4-5-thinking": {
+                  "name": "Claude Opus 4.5 Thinking (Antigravity)",
+                  "limit": { "context": 200000, "output": 64000 },
+                  "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+                  "variants": {
+                    "low": { "thinkingConfig": { "thinkingBudget": 8192 } },
+                    "max": { "thinkingConfig": { "thinkingBudget": 32768 } }
+                  }
+                },
+                "antigravity-gemini-3-pro": {
+                  "name": "Gemini 3 Pro (Antigravity)",
+                  "limit": { "context": 1048576, "output": 65535 },
+                  "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+                  "variants": {
+                    "low": { "thinkingLevel": "low" },
+                    "high": { "thinkingLevel": "high" }
+                  }
+                },
+                "antigravity-gemini-3-flash": {
+                  "name": "Gemini 3 Flash (Antigravity)",
+                  "limit": { "context": 1048576, "output": 65536 },
+                  "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+                  "variants": {
+                    "minimal": { "thinkingLevel": "minimal" },
+                    "low": { "thinkingLevel": "low" },
+                    "medium": { "thinkingLevel": "medium" },
+                    "high": { "thinkingLevel": "high" }
+                  }
+                }
+              }
+            }
+          }
+        }
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -133,37 +176,29 @@ jobs:
 
           chmod 600 "$auth_path" || true
 
-      - name: Antigravity token refresh (OpenCode ping)
+      - name: Antigravity token refresh (OpenCode ping - Claude Opus)
         continue-on-error: true
         shell: bash
-        env:
-          OPENCODE_CONFIG_CONTENT: |
-            {
-              "$schema": "https://opencode.ai/config.json",
-              "plugin": ["opencode-antigravity-auth@latest"],
-              "provider": {
-                "google": {
-                  "npm": "@ai-sdk/google",
-                  "models": {
-                    "antigravity-claude-opus-4-5-thinking": {
-                      "name": "Claude Opus 4.5 Thinking (Antigravity)",
-                      "limit": { "context": 200000, "output": 64000 },
-                      "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
-                      "variants": {
-                        "low": { "thinkingConfig": { "thinkingBudget": 8192 } },
-                        "max": { "thinkingConfig": { "thinkingBudget": 32768 } }
-                      }
-                    }
-                  }
-                }
-              }
-            }
         run: |
           set -euo pipefail
 
           # This will force an access token refresh if expired (access tokens are short-lived).
           # If the refresh token was revoked, this step fails and you must re-auth locally.
           opencode run "hello" --model google/antigravity-claude-opus-4-5-thinking --variant low
+
+      - name: Antigravity token refresh (OpenCode ping - Gemini 3 Pro)
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          opencode run "hello" --model google/antigravity-gemini-3-pro --variant low
+
+      - name: Antigravity token refresh (OpenCode ping - Gemini 3 Flash)
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          opencode run "hello" --model google/antigravity-gemini-3-flash --variant minimal
 
       - name: Update Antigravity accounts secret if refresh token/project changed
         shell: bash
