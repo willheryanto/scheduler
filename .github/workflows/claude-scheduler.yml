@@ -176,7 +176,7 @@ jobs:
 
           chmod 600 "$auth_path" || true
 
-      - name: Antigravity token refresh (OpenCode ping - Claude Opus)
+      - name: Ping Antigravity (OpenCode) - Claude Opus 4.5 Thinking
         continue-on-error: true
         shell: bash
         run: |
@@ -186,21 +186,21 @@ jobs:
           # If the refresh token was revoked, this step fails and you must re-auth locally.
           opencode run "hello" --model google/antigravity-claude-opus-4-5-thinking --variant low
 
-      - name: Antigravity token refresh (OpenCode ping - Gemini 3 Pro)
+      - name: Ping Antigravity (OpenCode) - Gemini 3 Pro
         continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
           opencode run "hello" --model google/antigravity-gemini-3-pro --variant low
 
-      - name: Antigravity token refresh (OpenCode ping - Gemini 3 Flash)
+      - name: Ping Antigravity (OpenCode) - Gemini 3 Flash
         continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
           opencode run "hello" --model google/antigravity-gemini-3-flash --variant minimal
 
-      - name: Update Antigravity accounts secret if refresh token/project changed
+      - name: Update secret - ANTIGRAVITY_ACCOUNTS_JSON
         shell: bash
         run: |
           set -euo pipefail
@@ -365,7 +365,7 @@ jobs:
             echo "old_tokens_path=$old_tokens_path"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Codex hello (ping)
+      - name: Ping Codex
         shell: bash
         env:
           CODEX_AUTH_PATH: ${{ steps.codex_prepare.outputs.auth_path }}
@@ -375,7 +375,7 @@ jobs:
           # Non-interactive usage: codex exec ...
           codex exec --full-auto --sandbox workspace-write "hello"
 
-      - name: Update Codex auth secret if token changed
+      - name: Update secret - CODEX_AUTH_JSON
         shell: bash
         env:
           CODEX_AUTH_PATH: ${{ steps.codex_prepare.outputs.auth_path }}
@@ -480,7 +480,7 @@ jobs:
             echo "old_tokens_path=$old_tokens_path"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Codex KR hello (ping)
+      - name: Ping Codex KR
         shell: bash
         env:
           CODEX_HOME: ${{ steps.codex_kr_prepare.outputs.codex_home }}
@@ -491,7 +491,7 @@ jobs:
           # Non-interactive usage: codex exec ...
           codex exec --full-auto --sandbox workspace-write "hello"
 
-      - name: Update Codex KR auth secret if token changed
+      - name: Update secret - CODEX_KR_AUTH_JSON
         shell: bash
         env:
           CODEX_HOME: ${{ steps.codex_kr_prepare.outputs.codex_home }}
