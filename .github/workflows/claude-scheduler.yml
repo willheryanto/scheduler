@@ -351,8 +351,7 @@ jobs:
           old_tokens_path="${RUNNER_TEMP}/codex-old-tokens.json"
           node - <<'NODE' "$auth_path" "$old_tokens_path"
           const fs = require("fs");
-          const authPath = process.argv[1];
-          const outPath = process.argv[2];
+          const [authPath, outPath] = process.argv.slice(2);
           const j = JSON.parse(fs.readFileSync(authPath, "utf8"));
           const access = String(j?.tokens?.access_token ?? "").trim();
           const refresh = String(j?.tokens?.refresh_token ?? "").trim();
@@ -465,8 +464,7 @@ jobs:
           old_tokens_path="${RUNNER_TEMP}/codex-kr-old-tokens.json"
           node - <<'NODE' "$auth_path" "$old_tokens_path"
           const fs = require("fs");
-          const authPath = process.argv[1];
-          const outPath = process.argv[2];
+          const [authPath, outPath] = process.argv.slice(2);
           const j = JSON.parse(fs.readFileSync(authPath, "utf8"));
           const access = String(j?.tokens?.access_token ?? "").trim();
           const refresh = String(j?.tokens?.refresh_token ?? "").trim();
