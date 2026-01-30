@@ -408,30 +408,30 @@ jobs:
 
       - name: Ping Antigravity (OpenCode) - Claude Opus 4.5 Thinking
         continue-on-error: true
-        timeout-minutes: 2
+        timeout-minutes: 1
         shell: bash
         run: |
           set -euo pipefail
 
           # This will force an access token refresh if expired (access tokens are short-lived).
           # If the refresh token was revoked, this step fails and you must re-auth locally.
-          opencode run "hello" --model google/antigravity-claude-opus-4-5-thinking --variant low
+          timeout 30s opencode run "hello" --model google/antigravity-claude-opus-4-5-thinking --variant low
 
       - name: Ping Antigravity (OpenCode) - Gemini 3 Pro
         continue-on-error: true
-        timeout-minutes: 2
+        timeout-minutes: 1
         shell: bash
         run: |
           set -euo pipefail
-          opencode run "hello" --model google/antigravity-gemini-3-pro --variant low
+          timeout 30s opencode run "hello" --model google/antigravity-gemini-3-pro --variant low
 
       - name: Ping Antigravity (OpenCode) - Gemini 3 Flash
         continue-on-error: true
-        timeout-minutes: 2
+        timeout-minutes: 1
         shell: bash
         run: |
           set -euo pipefail
-          opencode run "hello" --model google/antigravity-gemini-3-flash --variant minimal
+          timeout 30s opencode run "hello" --model google/antigravity-gemini-3-flash --variant minimal
 
       - name: Update secret - ANTIGRAVITY_ACCOUNTS_JSON
         shell: bash
