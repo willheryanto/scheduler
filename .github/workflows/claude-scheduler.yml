@@ -102,233 +102,6 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install OpenCode CLI
-        run: npm install -g opencode-ai
-
-      - name: Prepare Antigravity (OpenCode)
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [[ -z "${ANTIGRAVITY_ACCOUNTS_JSON:-}" ]]; then
-            echo "Missing required secret: ANTIGRAVITY_ACCOUNTS_JSON" >&2
-            exit 1
-          fi
-
-          if ! command -v opencode >/dev/null 2>&1; then
-            echo "Missing required CLI: opencode" >&2
-            exit 1
-          fi
-
-          accounts_path="$HOME/.config/opencode/antigravity-accounts.json"
-          mkdir -p "$(dirname "$accounts_path")"
-          printf '%s' "$ANTIGRAVITY_ACCOUNTS_JSON" > "$accounts_path"
-          chmod 600 "$accounts_path" || true
-
-          # Validate the JSON shape and seed OpenCode's auth store from the first enabled account.
-          # OpenCode stores provider credentials in ~/.local/share/opencode/auth.json.
-          auth_path="$HOME/.local/share/opencode/auth.json"
-          mkdir -p "$(dirname "$auth_path")"
-
-          ACCOUNTS_PATH="$accounts_path" AUTH_PATH="$auth_path" node - <<'NODE'
-          const fs = require('fs');
-
-          const accountsPath = process.env.ACCOUNTS_PATH;
-          const authPath = process.env.AUTH_PATH;
-          const providerId = 'google';
-
-          const raw = fs.readFileSync(accountsPath, 'utf8');
-          let parsed;
-          try {
-            parsed = JSON.parse(raw);
-          } catch (e) {
-            throw new Error(`Invalid JSON in ${accountsPath}: ${e?.message || String(e)}`);
-          }
-
-          if (!parsed || typeof parsed !== 'object') throw new Error('accounts JSON must be an object');
-          if (parsed.version !== 3) throw new Error(`accounts.version must be 3 (got ${String(parsed.version)})`);
-          if (!Array.isArray(parsed.accounts)) throw new Error('accounts.accounts must be an array');
-          if (parsed.accounts.length < 1) throw new Error('accounts.accounts must have at least 1 account');
-
-          const pick = parsed.accounts.find(a => a && a.enabled !== false) || parsed.accounts[0];
-          if (!pick || typeof pick !== 'object') throw new Error('accounts.accounts[0] must be an object');
-
-          const refreshToken = String(pick.refreshToken || '').trim();
-          if (!refreshToken) throw new Error('account.refreshToken is required');
-
-          const projectId = typeof pick.projectId === 'string' ? pick.projectId : '';
-          const managedProjectId = typeof pick.managedProjectId === 'string' ? pick.managedProjectId : '';
-
-          const refresh = managedProjectId
-            ? `${refreshToken}|${projectId}|${managedProjectId}`
-            : `${refreshToken}|${projectId}`;
-
-          const auth = {
-            [providerId]: {
-              type: 'oauth',
-              refresh,
-              access: '',
-              expires: 0,
-            },
-          };
-          fs.writeFileSync(authPath, JSON.stringify(auth, null, 2));
-          NODE
-
-          chmod 600 "$auth_path" || true
-
-      - name: Ping Antigravity (OpenCode) - Claude Opus 4.5 Thinking
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          # This will force an access token refresh if expired (access tokens are short-lived).
-          # If the refresh token was revoked, this step fails and you must re-auth locally.
-          opencode run "hello" --model google/antigravity-claude-opus-4-5-thinking --variant low
-
-      - name: Ping Antigravity (OpenCode) - Gemini 3 Pro
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          opencode run "hello" --model google/antigravity-gemini-3-pro --variant low
-
-      - name: Ping Antigravity (OpenCode) - Gemini 3 Flash
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          opencode run "hello" --model google/antigravity-gemini-3-flash --variant minimal
-
-      - name: Update secret - ANTIGRAVITY_ACCOUNTS_JSON
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if ! command -v gh >/dev/null 2>&1; then
-            echo "Missing required CLI: gh (GitHub CLI)" >&2
-            exit 1
-          fi
-
-          accounts_path="$HOME/.config/opencode/antigravity-accounts.json"
-          if [[ ! -f "$accounts_path" ]]; then
-            echo "Accounts file not found: $accounts_path" >&2
-            exit 1
-          fi
-
-          before_compact="$(
-            node -e '
-              const j = JSON.parse(process.env.ANTIGRAVITY_ACCOUNTS_JSON || "{}");
-              const accounts = Array.isArray(j.accounts) ? j.accounts : [];
-              const compact = accounts.map(a => ({
-                email: a?.email ?? "",
-                refreshToken: a?.refreshToken ?? "",
-                projectId: a?.projectId ?? "",
-                managedProjectId: a?.managedProjectId ?? "",
-                enabled: a?.enabled !== false,
-              }));
-              process.stdout.write(JSON.stringify(compact));
-            '
-          )"
-
-          after_compact="$(
-            ACCOUNTS_PATH="$accounts_path" node -e '
-              const fs = require("fs");
-              const j = JSON.parse(fs.readFileSync(process.env.ACCOUNTS_PATH, "utf8"));
-              const accounts = Array.isArray(j.accounts) ? j.accounts : [];
-              const compact = accounts.map(a => ({
-                email: a?.email ?? "",
-                refreshToken: a?.refreshToken ?? "",
-                projectId: a?.projectId ?? "",
-                managedProjectId: a?.managedProjectId ?? "",
-                enabled: a?.enabled !== false,
-              }));
-              process.stdout.write(JSON.stringify(compact));
-            '
-          )"
-
-          if [[ "$before_compact" == "$after_compact" ]]; then
-            echo "No refresh token/project changes; skipping secret update."
-            exit 0
-          fi
-
-          gh secret set ANTIGRAVITY_ACCOUNTS_JSON -R "$GITHUB_REPOSITORY" < "$accounts_path"
-          echo "Updated repo secret: ANTIGRAVITY_ACCOUNTS_JSON"
-
-      # - name: Install Claude CLI
-      #   run: npm install -g @anthropic-ai/claude-code@latest
-
-      # - name: Say hello (and rotate token if needed)
-      #   shell: bash
-      #   run: |
-      #     set -euo pipefail
-
-      #     if [[ -z "${CLAUDE_CREDENTIALS_JSON:-}" ]]; then
-      #       echo "Missing required secret: CLAUDE_CREDENTIALS_JSON" >&2
-      #       exit 1
-      #     fi
-
-      #     if ! command -v gh >/dev/null 2>&1; then
-      #       echo "Missing required CLI: gh (GitHub CLI)" >&2
-      #       exit 1
-      #     fi
-
-      #     credentials_path="${CLAUDE_CREDENTIALS_PATH:-$HOME/.claude/.credentials.json}"
-      #     mkdir -p "$(dirname "$credentials_path")"
-      #     printf '%s' "$CLAUDE_CREDENTIALS_JSON" > "$credentials_path"
-      #     chmod 600 "$credentials_path" || true
-
-      #     old_access="$(
-      #       node -e '
-      #         const fs=require("fs");
-      #         const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
-      #         process.stdout.write((j?.claudeAiOauth?.accessToken ?? "").trim());
-      #       ' "$credentials_path"
-      #     )"
-      #     old_refresh="$(
-      #       node -e '
-      #         const fs=require("fs");
-      #         const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
-      #         process.stdout.write((j?.claudeAiOauth?.refreshToken ?? "").trim());
-      #       ' "$credentials_path"
-      #     )"
-
-      #     # Adjust this command if your claude CLI expects a different invocation.
-      #     claude --model haiku -p "hello"
-
-      #     if [[ ! -f "$credentials_path" ]]; then
-      #       echo "Credentials file not found after running claude: $credentials_path" >&2
-      #       exit 1
-      #     fi
-
-      #     new_access="$(
-      #       node -e '
-      #         const fs=require("fs");
-      #         const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
-      #         process.stdout.write((j?.claudeAiOauth?.accessToken ?? "").trim());
-      #       ' "$credentials_path"
-      #     )"
-      #     new_refresh="$(
-      #       node -e '
-      #         const fs=require("fs");
-      #         const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
-      #         process.stdout.write((j?.claudeAiOauth?.refreshToken ?? "").trim());
-      #       ' "$credentials_path"
-      #     )"
-
-      #     if [[ -z "$new_access" || -z "$new_refresh" ]]; then
-      #       echo "Could not read access/refresh tokens from $credentials_path" >&2
-      #       exit 1
-      #     fi
-
-      #     if [[ "$new_access" == "$old_access" && "$new_refresh" == "$old_refresh" ]]; then
-      #       echo "Tokens unchanged; skipping secret update."
-      #       exit 0
-      #     fi
-
-      #     gh secret set CLAUDE_CREDENTIALS_JSON -R "$GITHUB_REPOSITORY" < "$credentials_path"
-      #     echo "Updated repo secret: CLAUDE_CREDENTIALS_JSON"
-
       - name: Install Codex CLI
         run: npm install -g @openai/codex@latest
 
@@ -558,3 +331,233 @@ jobs:
 
           gh secret set CODEX_KR_AUTH_JSON -R "$GITHUB_REPOSITORY" < "$auth_path"
           echo "Updated repo secret: CODEX_KR_AUTH_JSON"
+
+      - name: Install OpenCode CLI
+        run: npm install -g opencode-ai
+
+      - name: Prepare Antigravity (OpenCode)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${ANTIGRAVITY_ACCOUNTS_JSON:-}" ]]; then
+            echo "Missing required secret: ANTIGRAVITY_ACCOUNTS_JSON" >&2
+            exit 1
+          fi
+
+          if ! command -v opencode >/dev/null 2>&1; then
+            echo "Missing required CLI: opencode" >&2
+            exit 1
+          fi
+
+          accounts_path="$HOME/.config/opencode/antigravity-accounts.json"
+          mkdir -p "$(dirname "$accounts_path")"
+          printf '%s' "$ANTIGRAVITY_ACCOUNTS_JSON" > "$accounts_path"
+          chmod 600 "$accounts_path" || true
+
+          # Validate the JSON shape and seed OpenCode's auth store from the first enabled account.
+          # OpenCode stores provider credentials in ~/.local/share/opencode/auth.json.
+          auth_path="$HOME/.local/share/opencode/auth.json"
+          mkdir -p "$(dirname "$auth_path")"
+
+          ACCOUNTS_PATH="$accounts_path" AUTH_PATH="$auth_path" node - <<'NODE'
+          const fs = require('fs');
+
+          const accountsPath = process.env.ACCOUNTS_PATH;
+          const authPath = process.env.AUTH_PATH;
+          const providerId = 'google';
+
+          const raw = fs.readFileSync(accountsPath, 'utf8');
+          let parsed;
+          try {
+            parsed = JSON.parse(raw);
+          } catch (e) {
+            throw new Error(`Invalid JSON in ${accountsPath}: ${e?.message || String(e)}`);
+          }
+
+          if (!parsed || typeof parsed !== 'object') throw new Error('accounts JSON must be an object');
+          if (parsed.version !== 3) throw new Error(`accounts.version must be 3 (got ${String(parsed.version)})`);
+          if (!Array.isArray(parsed.accounts)) throw new Error('accounts.accounts must be an array');
+          if (parsed.accounts.length < 1) throw new Error('accounts.accounts must have at least 1 account');
+
+          const pick = parsed.accounts.find(a => a && a.enabled !== false) || parsed.accounts[0];
+          if (!pick || typeof pick !== 'object') throw new Error('accounts.accounts[0] must be an object');
+
+          const refreshToken = String(pick.refreshToken || '').trim();
+          if (!refreshToken) throw new Error('account.refreshToken is required');
+
+          const projectId = typeof pick.projectId === 'string' ? pick.projectId : '';
+          const managedProjectId = typeof pick.managedProjectId === 'string' ? pick.managedProjectId : '';
+
+          const refresh = managedProjectId
+            ? `${refreshToken}|${projectId}|${managedProjectId}`
+            : `${refreshToken}|${projectId}`;
+
+          const auth = {
+            [providerId]: {
+              type: 'oauth',
+              refresh,
+              access: '',
+              expires: 0,
+            },
+          };
+          fs.writeFileSync(authPath, JSON.stringify(auth, null, 2));
+          NODE
+
+          chmod 600 "$auth_path" || true
+
+      - name: Ping Antigravity (OpenCode) - Claude Opus 4.5 Thinking
+        continue-on-error: true
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # This will force an access token refresh if expired (access tokens are short-lived).
+          # If the refresh token was revoked, this step fails and you must re-auth locally.
+          opencode run "hello" --model google/antigravity-claude-opus-4-5-thinking --variant low
+
+      - name: Ping Antigravity (OpenCode) - Gemini 3 Pro
+        continue-on-error: true
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          opencode run "hello" --model google/antigravity-gemini-3-pro --variant low
+
+      - name: Ping Antigravity (OpenCode) - Gemini 3 Flash
+        continue-on-error: true
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          opencode run "hello" --model google/antigravity-gemini-3-flash --variant minimal
+
+      - name: Update secret - ANTIGRAVITY_ACCOUNTS_JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! command -v gh >/dev/null 2>&1; then
+            echo "Missing required CLI: gh (GitHub CLI)" >&2
+            exit 1
+          fi
+
+          accounts_path="$HOME/.config/opencode/antigravity-accounts.json"
+          if [[ ! -f "$accounts_path" ]]; then
+            echo "Accounts file not found: $accounts_path" >&2
+            exit 1
+          fi
+
+          before_compact="$(
+            node -e '
+              const j = JSON.parse(process.env.ANTIGRAVITY_ACCOUNTS_JSON || "{}");
+              const accounts = Array.isArray(j.accounts) ? j.accounts : [];
+              const compact = accounts.map(a => ({
+                email: a?.email ?? "",
+                refreshToken: a?.refreshToken ?? "",
+                projectId: a?.projectId ?? "",
+                managedProjectId: a?.managedProjectId ?? "",
+                enabled: a?.enabled !== false,
+              }));
+              process.stdout.write(JSON.stringify(compact));
+            '
+          )"
+
+          after_compact="$(
+            ACCOUNTS_PATH="$accounts_path" node -e '
+              const fs = require("fs");
+              const j = JSON.parse(fs.readFileSync(process.env.ACCOUNTS_PATH, "utf8"));
+              const accounts = Array.isArray(j.accounts) ? j.accounts : [];
+              const compact = accounts.map(a => ({
+                email: a?.email ?? "",
+                refreshToken: a?.refreshToken ?? "",
+                projectId: a?.projectId ?? "",
+                managedProjectId: a?.managedProjectId ?? "",
+                enabled: a?.enabled !== false,
+              }));
+              process.stdout.write(JSON.stringify(compact));
+            '
+          )"
+
+          if [[ "$before_compact" == "$after_compact" ]]; then
+            echo "No refresh token/project changes; skipping secret update."
+            exit 0
+          fi
+
+          gh secret set ANTIGRAVITY_ACCOUNTS_JSON -R "$GITHUB_REPOSITORY" < "$accounts_path"
+          echo "Updated repo secret: ANTIGRAVITY_ACCOUNTS_JSON"
+
+      # - name: Install Claude CLI
+      #   run: npm install -g @anthropic-ai/claude-code@latest
+
+      # - name: Say hello (and rotate token if needed)
+      #   shell: bash
+      #   run: |
+      #     set -euo pipefail
+
+      #     if [[ -z "${CLAUDE_CREDENTIALS_JSON:-}" ]]; then
+      #       echo "Missing required secret: CLAUDE_CREDENTIALS_JSON" >&2
+      #       exit 1
+      #     fi
+
+      #     if ! command -v gh >/dev/null 2>&1; then
+      #       echo "Missing required CLI: gh (GitHub CLI)" >&2
+      #       exit 1
+      #     fi
+
+      #     credentials_path="${CLAUDE_CREDENTIALS_PATH:-$HOME/.claude/.credentials.json}"
+      #     mkdir -p "$(dirname "$credentials_path")"
+      #     printf '%s' "$CLAUDE_CREDENTIALS_JSON" > "$credentials_path"
+      #     chmod 600 "$credentials_path" || true
+
+      #     old_access="$(
+      #       node -e '
+      #         const fs=require("fs");
+      #         const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+      #         process.stdout.write((j?.claudeAiOauth?.accessToken ?? "").trim());
+      #       ' "$credentials_path"
+      #     )"
+      #     old_refresh="$(
+      #       node -e '
+      #         const fs=require("fs");
+      #         const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+      #         process.stdout.write((j?.claudeAiOauth?.refreshToken ?? "").trim());
+      #       ' "$credentials_path"
+      #     )"
+
+      #     # Adjust this command if your claude CLI expects a different invocation.
+      #     claude --model haiku -p "hello"
+
+      #     if [[ ! -f "$credentials_path" ]]; then
+      #       echo "Credentials file not found after running claude: $credentials_path" >&2
+      #       exit 1
+      #     fi
+
+      #     new_access="$(
+      #       node -e '
+      #         const fs=require("fs");
+      #         const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+      #         process.stdout.write((j?.claudeAiOauth?.accessToken ?? "").trim());
+      #       ' "$credentials_path"
+      #     )"
+      #     new_refresh="$(
+      #       node -e '
+      #         const fs=require("fs");
+      #         const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+      #         process.stdout.write((j?.claudeAiOauth?.refreshToken ?? "").trim());
+      #       ' "$credentials_path"
+      #     )"
+
+      #     if [[ -z "$new_access" || -z "$new_refresh" ]]; then
+      #       echo "Could not read access/refresh tokens from $credentials_path" >&2
+      #       exit 1
+      #     fi
+
+      #     if [[ "$new_access" == "$old_access" && "$new_refresh" == "$old_refresh" ]]; then
+      #       echo "Tokens unchanged; skipping secret update."
+      #       exit 0
+      #     fi
+
+      #     gh secret set CLAUDE_CREDENTIALS_JSON -R "$GITHUB_REPOSITORY" < "$credentials_path"
+      #     echo "Updated repo secret: CLAUDE_CREDENTIALS_JSON"
