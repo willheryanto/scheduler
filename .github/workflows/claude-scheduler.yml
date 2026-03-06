@@ -147,6 +147,18 @@ jobs:
           # Non-interactive usage: codex exec ...
           codex exec --full-auto --sandbox workspace-write "hello"
 
+      - name: Ping Codex - gpt-5.3-codex-spark
+        continue-on-error: true
+        timeout-minutes: 1
+        shell: bash
+        env:
+          CODEX_AUTH_PATH: ${{ steps.codex_prepare.outputs.auth_path }}
+        run: |
+          set -euo pipefail
+
+          # Best-effort model-specific ping to refresh auth without blocking the workflow.
+          codex exec --full-auto --sandbox workspace-write --model gpt-5.3-codex-spark "hello"
+
       - name: Update secret - CODEX_AUTH_JSON
         shell: bash
         env:

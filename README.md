@@ -6,6 +6,7 @@ This repo includes a GitHub Actions workflow that runs token refresh pings on a 
 - 06:03, 11:03, 16:03 (GMT+7)
 
 GitHub cron is UTC, so the workflow uses `3 23,4,9 * * *`.
+The active Codex steps run one default ping plus one best-effort `gpt-5.3-codex-spark` ping.
 The (optional) `claude` section runs with `--model haiku` for faster execution.
 
 ### Required repo secret
