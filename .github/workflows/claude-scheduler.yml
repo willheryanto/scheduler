@@ -82,8 +82,18 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Non-interactive usage: codex exec ...
-          codex exec --full-auto --sandbox workspace-write "hello"
+          # Run the interactive CLI path under a pseudo-TTY. This more closely matches normal
+          # local Codex usage than `codex exec`, while the timeout prevents CI hangs.
+          set +e
+          ( sleep 20; printf '/quit\n' ) | timeout 45s script -q -e -c 'codex --no-alt-screen --model gpt-5.5 --sandbox workspace-write --ask-for-approval never "hello"' /dev/null
+          status="${PIPESTATUS[1]}"
+          set -e
+
+          if [[ "$status" -eq 124 ]]; then
+            echo "Codex TUI ping timed out after invocation; continuing."
+          elif [[ "$status" -ne 0 ]]; then
+            exit "$status"
+          fi
 
       - name: Update secret - CODEX_AUTH_JSON
         shell: bash
