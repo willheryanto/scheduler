@@ -84,11 +84,12 @@ jobs:
 
           print_codex_usage() {
             local label="$1"
-          node - <<'NODE' "$CODEX_AUTH_PATH" "$label"
+          local out_path="$2"
+          node - <<'NODE' "$CODEX_AUTH_PATH" "$label" "$out_path"
           const fs = require("fs");
           const https = require("https");
 
-          const [authPath, label] = process.argv.slice(2);
+          const [authPath, label, outPath] = process.argv.slice(2);
           const auth = JSON.parse(fs.readFileSync(authPath, "utf8"));
           const tokens = auth.tokens || {};
           const accessToken = String(tokens.access_token || "").trim();
@@ -115,11 +116,13 @@ jobs:
               res.on("data", (chunk) => { body += chunk; });
               res.on("end", () => {
                 if (res.statusCode < 200 || res.statusCode >= 300) {
-                  console.log(`codex usage ${label}: request failed status=${res.statusCode}`);
-                  return;
+                  console.error(`codex usage ${label}: request failed status=${res.statusCode}`);
+                  process.exit(1);
                 }
 
                 const payload = JSON.parse(body);
+                const primary = payload.rate_limit?.primary_window ?? null;
+                const secondary = payload.rate_limit?.secondary_window ?? null;
                 const printWindow = (name, window) => {
                   if (!window) {
                     console.log(`codex usage ${label} ${name}: unavailable`);
@@ -135,19 +138,29 @@ jobs:
                   );
                 };
 
-                printWindow("primary", payload.rate_limit?.primary_window);
-                printWindow("secondary", payload.rate_limit?.secondary_window);
+                printWindow("primary", primary);
+                printWindow("secondary", secondary);
+                fs.writeFileSync(outPath, JSON.stringify({
+                  primary_reset_at: primary?.reset_at ?? null,
+                  primary_used_percent: primary?.used_percent ?? null,
+                  secondary_reset_at: secondary?.reset_at ?? null,
+                  secondary_used_percent: secondary?.used_percent ?? null,
+                }));
               });
             },
           );
           req.on("error", (error) => {
-            console.log(`codex usage ${label}: request failed ${error.message}`);
+            console.error(`codex usage ${label}: request failed ${error.message}`);
+            process.exit(1);
           });
           req.end();
           NODE
           }
 
-          print_codex_usage "before"
+          before_usage_path="${RUNNER_TEMP}/codex-usage-before.json"
+          after_usage_path="${RUNNER_TEMP}/codex-usage-after.json"
+
+          print_codex_usage "before" "$before_usage_path"
 
           # Run the interactive CLI path under a pseudo-TTY. This more closely matches normal
           # local Codex usage than `codex exec`, while the timeout prevents CI hangs.
@@ -162,7 +175,25 @@ jobs:
             exit "$status"
           fi
 
-          print_codex_usage "after"
+          print_codex_usage "after" "$after_usage_path"
+
+          node - <<'NODE' "$before_usage_path" "$after_usage_path"
+          const fs = require("fs");
+          const [beforePath, afterPath] = process.argv.slice(2);
+          const before = JSON.parse(fs.readFileSync(beforePath, "utf8"));
+          const after = JSON.parse(fs.readFileSync(afterPath, "utf8"));
+
+          if (before.primary_reset_at === after.primary_reset_at) {
+            console.error(
+              `Codex primary reset_at unchanged after ping: ${before.primary_reset_at}`,
+            );
+            process.exit(1);
+          }
+
+          console.log(
+            `Codex primary reset_at changed: ${before.primary_reset_at} -> ${after.primary_reset_at}`,
+          );
+          NODE
 
       - name: Update secret - CODEX_AUTH_JSON
         shell: bash
