@@ -82,6 +82,73 @@ jobs:
         run: |
           set -euo pipefail
 
+          print_codex_usage() {
+            local label="$1"
+          node - <<'NODE' "$CODEX_AUTH_PATH" "$label"
+          const fs = require("fs");
+          const https = require("https");
+
+          const [authPath, label] = process.argv.slice(2);
+          const auth = JSON.parse(fs.readFileSync(authPath, "utf8"));
+          const tokens = auth.tokens || {};
+          const accessToken = String(tokens.access_token || "").trim();
+          const accountId = String(tokens.account_id || "").trim();
+
+          if (!accessToken) {
+            throw new Error("missing Codex access token");
+          }
+
+          const headers = {
+            Authorization: `Bearer ${accessToken}`,
+            "User-Agent": "codex-cli",
+          };
+          if (accountId) {
+            headers["ChatGPT-Account-Id"] = accountId;
+          }
+
+          const req = https.request(
+            "https://chatgpt.com/backend-api/wham/usage",
+            { method: "GET", headers },
+            (res) => {
+              let body = "";
+              res.setEncoding("utf8");
+              res.on("data", (chunk) => { body += chunk; });
+              res.on("end", () => {
+                if (res.statusCode < 200 || res.statusCode >= 300) {
+                  console.log(`codex usage ${label}: request failed status=${res.statusCode}`);
+                  return;
+                }
+
+                const payload = JSON.parse(body);
+                const printWindow = (name, window) => {
+                  if (!window) {
+                    console.log(`codex usage ${label} ${name}: unavailable`);
+                    return;
+                  }
+
+                  const resetAt = window.reset_at ?? null;
+                  const resetIso = resetAt ? new Date(resetAt * 1000).toISOString() : "";
+                  console.log(
+                    `codex usage ${label} ${name}: used_percent=${window.used_percent ?? ""} ` +
+                    `window_seconds=${window.limit_window_seconds ?? ""} ` +
+                    `reset_at=${resetAt ?? ""} reset_utc=${resetIso}`,
+                  );
+                };
+
+                printWindow("primary", payload.rate_limit?.primary_window);
+                printWindow("secondary", payload.rate_limit?.secondary_window);
+              });
+            },
+          );
+          req.on("error", (error) => {
+            console.log(`codex usage ${label}: request failed ${error.message}`);
+          });
+          req.end();
+          NODE
+          }
+
+          print_codex_usage "before"
+
           # Run the interactive CLI path under a pseudo-TTY. This more closely matches normal
           # local Codex usage than `codex exec`, while the timeout prevents CI hangs.
           set +e
@@ -94,6 +161,8 @@ jobs:
           elif [[ "$status" -ne 0 ]]; then
             exit "$status"
           fi
+
+          print_codex_usage "after"
 
       - name: Update secret - CODEX_AUTH_JSON
         shell: bash
