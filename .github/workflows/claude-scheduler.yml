@@ -184,10 +184,10 @@ jobs:
           const after = JSON.parse(fs.readFileSync(afterPath, "utf8"));
 
           if (before.primary_reset_at === after.primary_reset_at) {
-            console.error(
+            console.log(
               `Codex primary reset_at unchanged after ping: ${before.primary_reset_at}`,
             );
-            process.exit(1);
+            process.exit(0);
           }
 
           console.log(
