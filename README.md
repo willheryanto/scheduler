@@ -2,11 +2,11 @@
 
 ## Scheduled token refresh (Codex + OpenCode; Claude optional)
 
-This repo includes a GitHub Actions workflow that runs token refresh pings on a schedule at:
-- 06:03, 11:03, 16:03 (GMT+7)
+This repo includes a GitHub Actions workflow that starts a Codex token refresh at:
+- 04:00 (GMT+7), targeting completion by 05:00
 
-GitHub cron is UTC, so the workflow uses `3 23,4,9 * * *`.
-The active Codex steps run one default ping plus one best-effort `gpt-5.3-codex-spark` ping.
+GitHub cron is UTC, so the workflow uses `0 21 * * *`.
+The Codex step pings with `gpt-5.6-luna` at low reasoning effort, then runs `/usage`.
 The (optional) `claude` section runs with `--model haiku` for faster execution.
 
 ### Required repo secret

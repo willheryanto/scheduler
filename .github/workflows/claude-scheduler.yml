@@ -2,9 +2,8 @@ name: Claude scheduled hello (token refresh)
 
 on:
   schedule:
-    # GitHub cron uses UTC. Target actual fires ~06/11/16 GMT+7.
-    # Primary: 22:33, 01:33, 06:33 UTC. Backup (+1h): 02:33, 07:33 UTC.
-    - cron: "33 22,1,2,6,7 * * *"
+    # GitHub cron uses UTC. Start at 04:00 GMT+7 (21:00 UTC) for a one-hour buffer.
+    - cron: "0 21 * * *"
   workflow_dispatch:
 
 permissions:
@@ -83,91 +82,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          print_codex_usage() {
-            local label="$1"
-          local out_path="$2"
-          node - <<'NODE' "$CODEX_AUTH_PATH" "$label" "$out_path"
-          const fs = require("fs");
-          const https = require("https");
-
-          const [authPath, label, outPath] = process.argv.slice(2);
-          const auth = JSON.parse(fs.readFileSync(authPath, "utf8"));
-          const tokens = auth.tokens || {};
-          const accessToken = String(tokens.access_token || "").trim();
-          const accountId = String(tokens.account_id || "").trim();
-
-          if (!accessToken) {
-            throw new Error("missing Codex access token");
-          }
-
-          const headers = {
-            Authorization: `Bearer ${accessToken}`,
-            "User-Agent": "codex-cli",
-          };
-          if (accountId) {
-            headers["ChatGPT-Account-Id"] = accountId;
-          }
-
-          const req = https.request(
-            "https://chatgpt.com/backend-api/wham/usage",
-            { method: "GET", headers },
-            (res) => {
-              let body = "";
-              res.setEncoding("utf8");
-              res.on("data", (chunk) => { body += chunk; });
-              res.on("end", () => {
-                if (res.statusCode < 200 || res.statusCode >= 300) {
-                  console.error(`codex usage ${label}: request failed status=${res.statusCode}`);
-                  process.exit(1);
-                }
-
-                const payload = JSON.parse(body);
-                const primary = payload.rate_limit?.primary_window ?? null;
-                const secondary = payload.rate_limit?.secondary_window ?? null;
-                const printWindow = (name, window) => {
-                  if (!window) {
-                    console.log(`codex usage ${label} ${name}: unavailable`);
-                    return;
-                  }
-
-                  const resetAt = window.reset_at ?? null;
-                  const resetIso = resetAt ? new Date(resetAt * 1000).toISOString() : "";
-                  console.log(
-                    `codex usage ${label} ${name}: used_percent=${window.used_percent ?? ""} ` +
-                    `window_seconds=${window.limit_window_seconds ?? ""} ` +
-                    `reset_at=${resetAt ?? ""} reset_utc=${resetIso}`,
-                  );
-                };
-
-                printWindow("primary", primary);
-                printWindow("secondary", secondary);
-                fs.writeFileSync(outPath, JSON.stringify({
-                  primary_reset_at: primary?.reset_at ?? null,
-                  primary_used_percent: primary?.used_percent ?? null,
-                  secondary_reset_at: secondary?.reset_at ?? null,
-                  secondary_used_percent: secondary?.used_percent ?? null,
-                }));
-              });
-            },
-          );
-          req.on("error", (error) => {
-            console.error(`codex usage ${label}: request failed ${error.message}`);
-            process.exit(1);
-          });
-          req.end();
-          NODE
-          }
-
-          before_usage_path="${RUNNER_TEMP}/codex-usage-before.json"
-          after_usage_path="${RUNNER_TEMP}/codex-usage-after.json"
           tui_log_path="${RUNNER_TEMP}/codex-tui.log"
 
-          print_codex_usage "before" "$before_usage_path"
-
-          # Run the interactive CLI path under a pseudo-TTY. This more closely matches normal
-          # local Codex usage than `codex exec`, while the timeout prevents CI hangs.
+          # Start an interactive session with a ping, then request usage before quitting.
           set +e
-          ( sleep 20; printf '/quit\n' ) | timeout 45s script -q -e -c 'codex --no-alt-screen --model gpt-5.5 --sandbox workspace-write --ask-for-approval never "hello"' /dev/null | tee "$tui_log_path"
+          ( sleep 20; printf '/usage\n'; sleep 5; printf '/quit\n' ) | timeout 60s script -q -e -c 'codex --no-alt-screen --model gpt-5.6-luna -c model_reasoning_effort=low --sandbox workspace-write --ask-for-approval never "ping"' /dev/null | tee "$tui_log_path"
           status="${PIPESTATUS[1]}"
           set -e
 
@@ -204,26 +123,6 @@ jobs:
           elif [[ "$status" -ne 0 ]]; then
             exit "$status"
           fi
-
-          print_codex_usage "after" "$after_usage_path"
-
-          node - <<'NODE' "$before_usage_path" "$after_usage_path"
-          const fs = require("fs");
-          const [beforePath, afterPath] = process.argv.slice(2);
-          const before = JSON.parse(fs.readFileSync(beforePath, "utf8"));
-          const after = JSON.parse(fs.readFileSync(afterPath, "utf8"));
-
-          if (before.primary_reset_at === after.primary_reset_at) {
-            console.log(
-              `Codex primary reset_at unchanged after ping: ${before.primary_reset_at}`,
-            );
-            process.exit(0);
-          }
-
-          console.log(
-            `Codex primary reset_at changed: ${before.primary_reset_at} -> ${after.primary_reset_at}`,
-          );
-          NODE
 
       - name: Update secret - CODEX_AUTH_JSON
         shell: bash
