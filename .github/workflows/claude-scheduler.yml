@@ -83,16 +83,20 @@ jobs:
           set -euo pipefail
 
           tui_log_path="${RUNNER_TEMP}/codex-tui.log"
+          sessions_dir="${CODEX_HOME:-$HOME/.codex}/sessions"
+          start_marker="${RUNNER_TEMP}/codex-ping-start"
+          touch "$start_marker"
 
           # Start an interactive session with a ping, then request usage before quitting.
           set +e
-          ( sleep 20; printf '/usage\n'; sleep 5; printf '/quit\n' ) | timeout 60s script -q -e -c 'codex --no-alt-screen --model gpt-5.6-luna -c model_reasoning_effort=low --sandbox workspace-write --ask-for-approval never "ping"' /dev/null | tee "$tui_log_path"
+          ( sleep 20; printf '/usage\n'; sleep 5; printf '/quit\n' ) | timeout 60s script -q -e -c 'codex --no-alt-screen --model gpt-6-luna -c model_reasoning_effort=low --sandbox workspace-write --ask-for-approval never "ping"' /dev/null | tee "$tui_log_path"
           status="${PIPESTATUS[1]}"
           set -e
 
-          node - <<'NODE' "$tui_log_path"
+          node - <<'NODE' "$tui_log_path" "$sessions_dir" "$start_marker"
           const fs = require("fs");
-          const logPath = process.argv[2];
+          const path = require("path");
+          const [logPath, sessionsDir, startMarker] = process.argv.slice(2);
           const raw = fs.readFileSync(logPath, "utf8");
           const stripped = raw
             .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
@@ -109,6 +113,8 @@ jobs:
             "pleaselogoutandsigningagain",
             "notauthenticated",
             "authenticationrequired",
+            "account/readfailed",
+            "unauthorized",
           ];
 
           const matched = authFailures.find((needle) => compact.includes(needle));
@@ -116,6 +122,41 @@ jobs:
             console.error(`Codex TUI auth failure detected: ${matched}`);
             process.exit(1);
           }
+
+          // The TUI output isn't readable in CI, so confirm the model replied via the session rollout.
+          const since = fs.statSync(startMarker).mtimeMs;
+          const rollouts = [];
+          const walk = (dir) => {
+            if (!fs.existsSync(dir)) return;
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+              const p = path.join(dir, entry.name);
+              if (entry.isDirectory()) walk(p);
+              else if (/^rollout-.*\.jsonl$/.test(entry.name) && fs.statSync(p).mtimeMs >= since) rollouts.push(p);
+            }
+          };
+          walk(sessionsDir);
+
+          let reply = "";
+          let rateLimits = null;
+          for (const file of rollouts) {
+            for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+              let j;
+              try { j = JSON.parse(line); } catch { continue; }
+              const p = j?.payload;
+              if (j?.type === "response_item" && p?.type === "message" && p?.role === "assistant") {
+                const text = (p.content ?? []).map((c) => c?.text ?? "").join("").trim();
+                if (text) reply = text;
+              }
+              if (j?.type === "event_msg" && p?.type === "token_count" && p?.rate_limits) rateLimits = p.rate_limits;
+            }
+          }
+
+          if (!reply) {
+            console.error(`No Codex model reply found in session rollouts under ${sessionsDir} (${rollouts.length} file(s) checked).`);
+            process.exit(1);
+          }
+          console.log(`Codex replied: ${reply.slice(0, 200)}`);
+          if (rateLimits) console.log(`Codex rate limits: ${JSON.stringify(rateLimits)}`);
           NODE
 
           if [[ "$status" -eq 124 ]]; then
