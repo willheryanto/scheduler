@@ -240,3 +240,57 @@ jobs:
 
           gh secret set CODEX_AUTH_JSON -R "$GITHUB_REPOSITORY" < "$auth_path"
           echo "Updated repo secret: CODEX_AUTH_JSON"
+
+  claude:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Set this secret in repo settings.
+      # Expected to contain the long-lived token printed by `claude setup-token`.
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+    steps:
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code@latest
+
+      - name: Ping Claude
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
+            echo "Missing required secret: CLAUDE_CODE_OAUTH_TOKEN" >&2
+            exit 1
+          fi
+
+          result_path="${RUNNER_TEMP}/claude-result.json"
+
+          set +e
+          timeout 120s claude -p --model haiku --output-format json "ping" > "$result_path"
+          status=$?
+          set -e
+
+          node - <<'NODE' "$result_path" "$status"
+          const fs = require("fs");
+          const [resultPath, status] = process.argv.slice(2);
+          const raw = fs.readFileSync(resultPath, "utf8");
+          let j;
+          try {
+            j = JSON.parse(raw);
+          } catch {
+            console.error(`Claude returned non-JSON output (exit ${status}): ${raw.slice(0, 500)}`);
+            process.exit(1);
+          }
+
+          const reply = String(j?.result ?? "").trim();
+          if (j?.is_error || j?.subtype !== "success" || !reply) {
+            console.error(`Claude ping failed (exit ${status}): ${JSON.stringify({ subtype: j?.subtype, api_error_status: j?.api_error_status, result: reply.slice(0, 500) })}`);
+            process.exit(1);
+          }
+          console.log(`Claude replied: ${reply.slice(0, 200)}`);
+          NODE
