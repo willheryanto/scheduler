@@ -59,6 +59,11 @@ jobs:
           printf '%s' "$CODEX_AUTH_JSON" > "$auth_path"
           chmod 600 "$auth_path" || true
 
+          # Pre-trust the workspace so the TUI doesn't stop at the folder trust prompt.
+          codex_home="${CODEX_HOME:-$HOME/.codex}"
+          mkdir -p "$codex_home"
+          printf '\n[projects."%s"]\ntrust_level = "trusted"\n' "$GITHUB_WORKSPACE" >> "$codex_home/config.toml"
+
           old_tokens_path="${RUNNER_TEMP}/codex-old-tokens.json"
           node - <<'NODE' "$auth_path" "$old_tokens_path"
           const fs = require("fs");
@@ -89,7 +94,7 @@ jobs:
 
           # Start an interactive session with a ping, then request usage before quitting.
           set +e
-          ( sleep 20; printf '/usage\n'; sleep 5; printf '/quit\n' ) | timeout 60s script -q -e -c 'codex --no-alt-screen --model gpt-6-luna -c model_reasoning_effort=low --sandbox workspace-write --ask-for-approval never "ping"' /dev/null | tee "$tui_log_path"
+          ( sleep 20; printf '/usage\n'; sleep 5; printf '/quit\n' ) | timeout 60s env TERM=xterm-256color script -q -e -c 'stty rows 40 cols 120; codex --no-alt-screen --model gpt-6-luna -c model_reasoning_effort=low --sandbox workspace-write --ask-for-approval never "ping"' /dev/null | tee "$tui_log_path"
           status="${PIPESTATUS[1]}"
           set -e
 
@@ -166,6 +171,8 @@ jobs:
           fi
 
       - name: Update secret - CODEX_AUTH_JSON
+        # Save rotated tokens even if the ping check fails, so the secret never goes stale.
+        if: always() && steps.codex_prepare.outcome == 'success'
         shell: bash
         env:
           CODEX_AUTH_PATH: ${{ steps.codex_prepare.outputs.auth_path }}
