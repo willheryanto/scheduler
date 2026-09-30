@@ -20,6 +20,8 @@ concurrency:
 
 jobs:
   hello:
+    # Codex ping disabled; only the Claude ping runs. Remove this line to re-enable.
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
